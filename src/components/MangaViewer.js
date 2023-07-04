@@ -5,10 +5,9 @@ const MangaViewer = ({ chapterId }) => {
   const [pages, setPages] = useState([]);
 
   useEffect(() => {
-    // Fetch manga pages for the selected chapter from the API
     fetchPages(chapterId)
       .then(response => {
-        setPages(response.data);
+        setPages(response);
       })
       .catch(error => {
         console.error('Error fetching manga pages:', error);
@@ -16,10 +15,10 @@ const MangaViewer = ({ chapterId }) => {
   }, [chapterId]);
 
   return (
-    <div>
+    <div className="manga-viewer">
       <h2>Manga Viewer</h2>
-      {pages.map(page => (
-        <img key={page.id} src={page.url} alt={`Page ${page.id}`} />
+      {pages.map((page, index) => (
+        <img key={index} src={page.imageUrl} alt={`Page ${index + 1}`} />
       ))}
     </div>
   );

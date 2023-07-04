@@ -1,18 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { fetchChapters } from '../api';
 
-const ChapterList = ({ mangaId }) => {
+const ChapterList = ({ mangaId, onSelectChapter }) => {
   const [chapters, setChapters] = useState([]);
 
   useEffect(() => {
-    // Fetch chapters for the selected manga from the API
-    fetchChapters(mangaId)
-      .then(response => {
-        setChapters(response.data);
-      })
-      .catch(error => {
-        console.error('Error fetching chapters:', error);
-      });
+    if (mangaId) {
+      fetchChapters(mangaId)
+        .then(response => {
+          setChapters(response);
+        })
+        .catch(error => {
+          console.error('Error fetching chapters:', error);
+        });
+    }
   }, [mangaId]);
 
   return (
@@ -20,7 +21,9 @@ const ChapterList = ({ mangaId }) => {
       <h2>Chapters</h2>
       <ul>
         {chapters.map(chapter => (
-          <li key={chapter.id}>{chapter.title}</li>
+          <li key={chapter.id} onClick={() => onSelectChapter(chapter.id)}>
+            Chapter {chapter.number}
+          </li>
         ))}
       </ul>
     </div>
