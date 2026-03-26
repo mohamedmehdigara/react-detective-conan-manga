@@ -1,230 +1,193 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import styled, { createGlobalStyle, keyframes, css } from 'styled-components';
 
-// --- 1. Animations & Shaders ---
-const inkGrit = keyframes`
-  0% { transform: translate(0,0) }
-  10% { transform: translate(-0.5%, -0.5%) }
-  20% { transform: translate(0.5%, 0.5%) }
-  100% { transform: translate(0,0) }
-`;
-
-const deductionFlash = keyframes`
-  0% { filter: contrast(1) brightness(1); }
-  10% { filter: contrast(5) brightness(2) invert(1); }
-  100% { filter: contrast(1.2) brightness(1.1); }
-`;
-
+// --- 1. Global & Logic Styles ---
 const GlobalStyle = createGlobalStyle`
   @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@900&family=Sawarabi+Mincho&display=swap');
   
   body {
-    background-color: #050505;
+    background: #000;
     margin: 0;
     font-family: 'Sawarabi Mincho', serif;
     overflow: hidden;
-    -webkit-font-smoothing: antialiased;
+    cursor: crosshair;
   }
 `;
 
-// --- 2. The Manga Architecture ---
-const Desk = styled.div`
-  min-height: 100vh;
+const drawLine = keyframes`
+  from { stroke-dashoffset: 1000; }
+  to { stroke-dashoffset: 0; }
+`;
+
+// --- 2. 3D & Layout Components ---
+const Stage = styled.div`
+  height: 100vh;
+  width: 100vw;
   display: flex;
   justify-content: center;
   align-items: center;
-  background: radial-gradient(circle, #1a1a1a 0%, #000 100%);
   perspective: 1500px;
+  background: radial-gradient(circle, #1a1a1a 0%, #000 100%);
 `;
 
-const MangaPage = styled.main`
+const MangaSheet = styled.main.attrs(props => ({
+  style: {
+    transform: `rotateY(${props.tiltX}deg) rotateX(${props.tiltY}deg)`,
+  },
+}))`
   background: #fdfdfd;
-  width: 90%;
-  max-width: 800px;
+  width: 85vw;
+  max-width: 900px;
+  height: 80vh;
   display: grid;
   grid-template-columns: repeat(12, 1fr);
-  grid-auto-rows: minmax(110px, auto);
-  gap: 12px;
+  grid-template-rows: repeat(10, 1fr);
+  gap: 15px;
   padding: 30px;
-  direction: rtl; 
   position: relative;
+  transition: transform 0.1s ease-out; /* Snappy for mouse tracking */
   box-shadow: 0 50px 100px rgba(0,0,0,0.9);
-  transition: transform 0.2s ease-out;
-  transform: ${props => `rotateX(${props.tilt.y}deg) rotateY(${props.tilt.x}deg)`};
-  animation: ${props => props.isSolved ? css`${deductionFlash} 0.8s ease-out forwards` : 'none'};
+  direction: rtl;
 
-  /* Physical Paper Shader */
-  &::before {
+  &::after {
     content: "";
     position: absolute;
     inset: 0;
-    background-image: 
-      url("https://www.transparenttextures.com/patterns/natural-paper.png"),
-      radial-gradient(rgba(0,0,0,0.12) 1.2px, transparent 0);
-    background-size: auto, 4px 4px;
+    background: url("https://www.transparenttextures.com/patterns/natural-paper.png");
+    opacity: 0.3;
     pointer-events: none;
-    z-index: 10;
+    z-index: 5;
   }
 `;
 
 const Panel = styled.div`
   grid-column: ${props => props.cols || 'span 6'};
-  grid-row: ${props => props.rows || 'span 2'};
+  grid-row: ${props => props.rows || 'span 4'};
   background: #fff;
   border: 4px solid #000;
   position: relative;
+  z-index: 10;
   overflow: hidden;
-  z-index: 1;
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  transition: 0.3s;
   
-  /* Organic Border - Not perfectly straight */
-  border-radius: 2px 5px 3px 6px;
+  /* Dynamic Clip-Paths for Manga Style */
+  clip-path: ${props => props.shape || 'none'};
 
   &:hover {
-    z-index: 50;
-    transform: scale(1.04) translateZ(40px);
-    box-shadow: 15px 15px 0px #e60012;
-    border-color: #000;
+    z-index: 100;
+    transform: translateZ(50px);
+    box-shadow: 20px 20px 0px #e60012;
+  }
+`;
+
+const ConnectionWire = styled.svg`
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 20;
+
+  path {
+    stroke: #e60012;
+    stroke-width: 3;
+    fill: none;
+    stroke-dasharray: 1000;
+    stroke-dashoffset: 1000;
+    animation: ${drawLine} 2s forwards ease-in-out;
+    filter: drop-shadow(0 0 5px rgba(230, 0, 18, 0.5));
   }
 `;
 
 const SFX = styled.div`
   position: absolute;
   font-family: 'Noto Serif JP', serif;
-  font-size: ${props => props.size || '4rem'};
-  color: ${props => props.red ? '#e60012' : '#000'};
-  writing-mode: vertical-rl;
-  right: ${props => props.x || '5%'};
-  bottom: ${props => props.bottom || '10%'};
-  z-index: 20;
-  -webkit-text-stroke: 1.5px #fff;
-  text-shadow: 4px 4px 0px rgba(0,0,0,0.1);
-  pointer-events: none;
-  font-weight: 900;
-`;
-
-const ThoughtBubble = styled.div`
-  position: absolute;
-  background: #fff;
-  border: 2px solid #000;
-  padding: 10px;
-  font-size: 0.8rem;
-  font-weight: 900;
+  font-size: ${props => props.size || '3rem'};
   color: #000;
-  top: ${props => props.y};
-  right: ${props => props.x};
-  box-shadow: 3px 3px 0px #000;
-  z-index: 30;
-  max-width: 130px;
-  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
-  mix-blend-mode: multiply; /* Inks the text into the paper */
-`;
-
-const Mask = styled.div`
-  position: absolute;
-  inset: 0;
-  background: #000;
-  z-index: 100;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  letter-spacing: 4px;
-  cursor: help;
-  transition: opacity 0.6s ease, transform 0.6s ease;
-  ${props => props.open && css`
-    opacity: 0;
-    transform: translateY(-100%);
-    pointer-events: none;
-  `}
+  writing-mode: vertical-rl;
+  right: 10px;
+  top: 10px;
+  -webkit-text-stroke: 1px white;
 `;
 
 // --- 3. The Logic Engine ---
 export default function App() {
-  const [evidence, setEvidence] = useState({ one: false, two: false, three: false });
   const [tilt, setTilt] = useState({ x: -5, y: 2 });
-  const isSolved = Object.values(evidence).every(Boolean);
+  const [links, setLinks] = useState([]); // Tracks which red strings to show
+  const [solved, setSolved] = useState(false);
 
   const handleMouseMove = (e) => {
-    const x = (window.innerWidth / 2 - e.pageX) / 40;
-    const y = (window.innerHeight / 2 - e.pageY) / 40;
-    setTilt({ x: x - 5, y: y + 2 });
+    const x = (window.innerWidth / 2 - e.clientX) / 25;
+    const y = (e.clientY - window.innerHeight / 2) / 25;
+    setTilt({ x, y });
+  };
+
+  const connectClue = (id) => {
+    if (!links.includes(id)) {
+      setLinks([...links, id]);
+      if (links.length + 1 >= 2) setSolved(true);
+    }
   };
 
   return (
-    <Desk onMouseMove={handleMouseMove}>
+    <Stage onMouseMove={handleMouseMove}>
       <GlobalStyle />
       
-      {/* HUD Info */}
-      <div style={{ position: 'fixed', top: '30px', left: '30px', zIndex: 200, color: '#fff' }}>
-        <h2 style={{ letterSpacing: '8px', margin: 0, fontSize: '1rem' }}>名探偵コナン</h2>
-        <p style={{ fontSize: '0.6rem', opacity: 0.5 }}>STATUS: {isSolved ? "TRUTH ATTAINED" : "DEDUCING..."}</p>
+      <div style={{ position: 'fixed', top: '30px', left: '30px', zIndex: 1000, color: '#fff' }}>
+        <h2 style={{ letterSpacing: '5px' }}>DEDUCTION BOARD v11.0</h2>
+        <p style={{ fontSize: '0.6rem', opacity: 0.5 }}>MOVE MOUSE TO INSPECT 3D SPACE</p>
       </div>
 
-      <MangaPage tilt={tilt} isSolved={isSolved}>
-        {/* Panel 1: The Intro */}
-        <Panel cols="span 12" rows="span 4">
-          <div style={{ 
-            background: isSolved ? '#e60012' : '#000', 
-            color: '#fff', padding: '40px', height: '100%', 
-            transition: 'background 1s cubic-bezier(0.4, 0, 0.2, 1)' 
-          }}>
-            <h1 style={{ fontSize: '3.5rem', margin: 0 }}>真相はいつもひとつ!</h1>
-            <p style={{ opacity: 0.7 }}>THERE IS ALWAYS ONLY ONE TRUTH!</p>
-          </div>
-          <SFX x="5%" bottom="10%" size="6rem">ドドド</SFX>
+      <MangaSheet tiltX={tilt.x} tiltY={tilt.y}>
+        {/* Red String Layer */}
+        <ConnectionWire>
+          {links.includes(1) && <path d="M 400 150 Q 500 300 300 450" />}
+          {links.includes(2) && <path d="M 300 450 Q 150 500 600 650" />}
+        </ConnectionWire>
+
+        {/* Panel 1: The Victim */}
+        <Panel cols="span 12" rows="span 3" style={{ background: '#000' }}>
+          <h1 style={{ color: '#fff', fontSize: '3rem' }}>真実はいつもひとつ!</h1>
         </Panel>
 
-        {/* Panel 2: The Clue (Interactive) */}
-        <Panel cols="span 5" rows="span 5">
-          <Mask open={evidence.one} onClick={() => setEvidence({...evidence, one: true})}>
-            [ CLASSIFIED ]
-          </Mask>
-          <div style={{ padding: '20px', textAlign: 'center', marginTop: '40px' }}>
-            <span style={{ fontSize: '4rem' }}>🕵️‍♂️</span>
-            <p style={{ color: '#000', fontWeight: '900', fontSize: '0.9rem' }}>"The shadow... it moves against the wind."</p>
-          </div>
-          <ThoughtBubble x="10%" y="10%">Something is off.</ThoughtBubble>
+        {/* Panel 2: The Footprints (Unlock String 1) */}
+        <Panel 
+          cols="span 7" rows="span 4" 
+          shape="polygon(0% 0%, 100% 0%, 90% 100%, 0% 100%)"
+          onClick={() => connectClue(1)}
+        >
+          <SFX size="4rem">ザワ</SFX>
+          <p style={{ fontWeight: 900 }}>[ CLICK TO ANALYZE FOOTPRINTS ]</p>
+          {links.includes(1) && <div style={{ color: '#e60012' }}>LINK ESTABLISHED</div>}
         </Panel>
 
-        {/* Panel 3: Gadget Logic */}
-        <Panel cols="span 7" rows="span 3" onClick={() => setEvidence({...evidence, two: true})} style={{ cursor: 'pointer' }}>
-          <div style={{ padding: '25px', display: 'flex', alignItems: 'center' }}>
-            <span style={{ fontSize: '3rem', filter: evidence.two ? 'none' : 'grayscale(1) blur(4px)' }}>🎯</span>
-            <div style={{ marginLeft: '15px', color: '#000' }}>
-               <h3 style={{ margin: 0 }}>TARGET LOCK</h3>
-               <p style={{ fontSize: '0.7rem' }}>Stun-gun watch: Calibrating...</p>
-            </div>
-          </div>
-          <SFX red x="5%" bottom="5%" size="2rem">ザワ</SFX>
-        </Panel>
-
-        {/* Panel 4: The Final Evidence */}
-        <Panel cols="span 7" rows="span 2" onClick={() => setEvidence({...evidence, three: true})} style={{ cursor: 'pointer' }}>
-           <Mask open={evidence.three}>
-            [ ANALYSIS ]
-          </Mask>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <span style={{ fontSize: '3rem' }}>💊</span>
-            <h4 style={{ color: '#000', marginLeft: '15px', letterSpacing: '2px' }}>APTX 4869 FOUND</h4>
+        {/* Panel 3: The Secret (Unlock String 2) */}
+        <Panel 
+          cols="span 5" rows="span 4" 
+          onClick={() => connectClue(2)}
+        >
+          <div style={{ textAlign: 'center', padding: '10px' }}>
+            <span style={{ fontSize: '3rem' }}>🗝️</span>
+            <p style={{ fontSize: '0.8rem' }}>The hidden safe was empty...</p>
           </div>
         </Panel>
 
-        {/* Panel 5: The Reveal */}
-        <Panel cols="span 12" rows="span 3" style={{ background: isSolved ? '#000' : '#fff' }}>
-          <div style={{ height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-            <h2 style={{ fontSize: '2.5rem', color: isSolved ? '#e60012' : '#ddd', textAlign: 'center' }}>
-              {isSolved ? "CASE CLOSED!" : "COLLECTING PROOF..."}
-            </h2>
-          </div>
-          {isSolved && <SFX red x="45%" bottom="10%" size="6rem">バァーン</SFX>}
+        {/* Panel 4: Conclusion */}
+        <Panel cols="span 12" rows="span 3" style={{ background: solved ? '#e60012' : '#fff' }}>
+          <h2 style={{ color: solved ? '#fff' : '#000' }}>
+            {solved ? "THE CULPRIT'S IDENTITY REVEALED" : "CONNECT THE CLUES"}
+          </h2>
+          {solved && <SFX size="5rem" style={{ right: '40%' }}>バァーン</SFX>}
         </Panel>
-      </MangaPage>
+      </MangaSheet>
 
-      <footer style={{ position: 'fixed', bottom: '20px', opacity: 0.3, color: '#fff', fontSize: '0.6rem', letterSpacing: '3px' }}>
-        RE-RENDER: REACT_MANGA_CORE_V3
+      <footer style={{ position: 'fixed', bottom: '20px', right: '30px', opacity: 0.2, color: '#fff', fontSize: '0.6rem' }}>
+        KUDO_LOGIC_V11.0
       </footer>
-    </Desk>
+    </Stage>
   );
 }
