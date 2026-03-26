@@ -1,153 +1,230 @@
-import React, { useState } from 'react';
-import styled, { createGlobalStyle } from 'styled-components';
+import React, { useState, useEffect } from 'react';
+import styled, { createGlobalStyle, keyframes, css } from 'styled-components';
 
-// 1. Manga Aesthetics: B&W, Screentones, and Right-to-Left
-const GlobalMangaStyle = createGlobalStyle`
+// --- 1. Animations & Shaders ---
+const inkGrit = keyframes`
+  0% { transform: translate(0,0) }
+  10% { transform: translate(-0.5%, -0.5%) }
+  20% { transform: translate(0.5%, 0.5%) }
+  100% { transform: translate(0,0) }
+`;
+
+const deductionFlash = keyframes`
+  0% { filter: contrast(1) brightness(1); }
+  10% { filter: contrast(5) brightness(2) invert(1); }
+  100% { filter: contrast(1.2) brightness(1.1); }
+`;
+
+const GlobalStyle = createGlobalStyle`
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@900&family=Sawarabi+Mincho&display=swap');
+  
   body {
-    background-color: #1a1a1a;
+    background-color: #050505;
     margin: 0;
-    font-family: "MS PMincho", "Sawarabi Mincho", serif;
-    overflow-x: hidden;
+    font-family: 'Sawarabi Mincho', serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
   }
 `;
 
-// 2. The Manga Page Container
-const MangaPage = styled.main`
-  background: white;
-  width: 100%;
-  max-width: 900px;
+// --- 2. The Manga Architecture ---
+const Desk = styled.div`
   min-height: 100vh;
-  margin: 0 auto;
-  padding: 40px;
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  grid-auto-rows: 200px;
-  gap: 12px; /* The 'Gutter' */
-  box-shadow: 0 0 50px rgba(0,0,0,0.5);
-  direction: rtl; /* Traditional Manga Reading Flow */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: radial-gradient(circle, #1a1a1a 0%, #000 100%);
+  perspective: 1500px;
 `;
 
-// 3. Panel Components with Halftone-style borders
+const MangaPage = styled.main`
+  background: #fdfdfd;
+  width: 90%;
+  max-width: 800px;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: minmax(110px, auto);
+  gap: 12px;
+  padding: 30px;
+  direction: rtl; 
+  position: relative;
+  box-shadow: 0 50px 100px rgba(0,0,0,0.9);
+  transition: transform 0.2s ease-out;
+  transform: ${props => `rotateX(${props.tilt.y}deg) rotateY(${props.tilt.x}deg)`};
+  animation: ${props => props.isSolved ? css`${deductionFlash} 0.8s ease-out forwards` : 'none'};
+
+  /* Physical Paper Shader */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: 
+      url("https://www.transparenttextures.com/patterns/natural-paper.png"),
+      radial-gradient(rgba(0,0,0,0.12) 1.2px, transparent 0);
+    background-size: auto, 4px 4px;
+    pointer-events: none;
+    z-index: 10;
+  }
+`;
+
 const Panel = styled.div`
-  background: #eee;
-  border: 4px solid black;
-  grid-column: ${props => props.col || 'span 4'};
-  grid-row: ${props => props.row || 'span 1'};
+  grid-column: ${props => props.cols || 'span 6'};
+  grid-row: ${props => props.rows || 'span 2'};
+  background: #fff;
+  border: 4px solid #000;
   position: relative;
   overflow: hidden;
+  z-index: 1;
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  
+  /* Organic Border - Not perfectly straight */
+  border-radius: 2px 5px 3px 6px;
+
+  &:hover {
+    z-index: 50;
+    transform: scale(1.04) translateZ(40px);
+    box-shadow: 15px 15px 0px #e60012;
+    border-color: #000;
+  }
+`;
+
+const SFX = styled.div`
+  position: absolute;
+  font-family: 'Noto Serif JP', serif;
+  font-size: ${props => props.size || '4rem'};
+  color: ${props => props.red ? '#e60012' : '#000'};
+  writing-mode: vertical-rl;
+  right: ${props => props.x || '5%'};
+  bottom: ${props => props.bottom || '10%'};
+  z-index: 20;
+  -webkit-text-stroke: 1.5px #fff;
+  text-shadow: 4px 4px 0px rgba(0,0,0,0.1);
+  pointer-events: none;
+  font-weight: 900;
+`;
+
+const ThoughtBubble = styled.div`
+  position: absolute;
+  background: #fff;
+  border: 2px solid #000;
+  padding: 10px;
+  font-size: 0.8rem;
+  font-weight: 900;
+  color: #000;
+  top: ${props => props.y};
+  right: ${props => props.x};
+  box-shadow: 3px 3px 0px #000;
+  z-index: 30;
+  max-width: 130px;
+  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+  mix-blend-mode: multiply; /* Inks the text into the paper */
+`;
+
+const Mask = styled.div`
+  position: absolute;
+  inset: 0;
+  background: #000;
+  z-index: 100;
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  
-  /* Adding a subtle manga "screentone" effect */
-  background-image: radial-gradient(#ccc 1px, transparent 0);
-  background-size: 4px 4px;
-
-  &:hover {
-    background-color: #fff;
-    filter: contrast(1.2);
-  }
-`;
-
-const SpeechBubble = styled.div`
-  position: absolute;
-  background: white;
-  border: 2px solid black;
-  border-radius: 50%;
-  padding: 10px;
-  font-size: 0.9rem;
-  font-weight: bold;
-  color: black;
-  max-width: 80px;
-  text-align: center;
-  top: ${props => props.top};
-  right: ${props => props.right};
-  box-shadow: 2px 2px 0px black;
-
-  &::after {
-    content: '';
-    position: absolute;
-    bottom: -10px;
-    right: 20px;
-    border-width: 10px 10px 0;
-    border-style: solid;
-    border-color: white transparent;
-  }
-`;
-
-const SoundEffect = styled.div`
-  position: absolute;
-  font-family: 'Impact', sans-serif;
-  font-size: 3rem;
-  color: rgba(0,0,0,0.8);
-  transform: rotate(-15deg);
-  bottom: 10px;
-  left: 10px;
-  pointer-events: none;
-`;
-
-const PanelLabel = styled.span`
-  background: black;
-  color: white;
-  padding: 2px 10px;
-  position: absolute;
-  top: 0;
-  right: 0;
   font-size: 0.7rem;
+  letter-spacing: 4px;
+  cursor: help;
+  transition: opacity 0.6s ease, transform 0.6s ease;
+  ${props => props.open && css`
+    opacity: 0;
+    transform: translateY(-100%);
+    pointer-events: none;
+  `}
 `;
 
-// 4. The Component
+// --- 3. The Logic Engine ---
 export default function App() {
-  const [currentPage, setCurrentPage] = useState(1);
+  const [evidence, setEvidence] = useState({ one: false, two: false, three: false });
+  const [tilt, setTilt] = useState({ x: -5, y: 2 });
+  const isSolved = Object.values(evidence).every(Boolean);
+
+  const handleMouseMove = (e) => {
+    const x = (window.innerWidth / 2 - e.pageX) / 40;
+    const y = (window.innerHeight / 2 - e.pageY) / 40;
+    setTilt({ x: x - 5, y: y + 2 });
+  };
 
   return (
-    <>
-      <GlobalMangaStyle />
-      <div style={{ textAlign: 'center', color: 'white', padding: '10px' }}>
-        <button onClick={() => setCurrentPage(p => p + 1)}>Next Chapter</button>
-        <p>Reading Right → Left</p>
+    <Desk onMouseMove={handleMouseMove}>
+      <GlobalStyle />
+      
+      {/* HUD Info */}
+      <div style={{ position: 'fixed', top: '30px', left: '30px', zIndex: 200, color: '#fff' }}>
+        <h2 style={{ letterSpacing: '8px', margin: 0, fontSize: '1rem' }}>名探偵コナン</h2>
+        <p style={{ fontSize: '0.6rem', opacity: 0.5 }}>STATUS: {isSolved ? "TRUTH ATTAINED" : "DEDUCING..."}</p>
       </div>
 
-      <MangaPage>
-        {/* Panel 1: The Detective's Entry */}
-        <Panel col="span 12" row="span 2">
-          <PanelLabel>PANEL 01</PanelLabel>
-          <h2 style={{ color: 'black', fontSize: '2.5rem' }}>EDOGAWA CONAN...</h2>
-          <SoundEffect>THUMP!!</SoundEffect>
-          <SpeechBubble top="20%" right="10%">There is only ONE truth!</SpeechBubble>
+      <MangaPage tilt={tilt} isSolved={isSolved}>
+        {/* Panel 1: The Intro */}
+        <Panel cols="span 12" rows="span 4">
+          <div style={{ 
+            background: isSolved ? '#e60012' : '#000', 
+            color: '#fff', padding: '40px', height: '100%', 
+            transition: 'background 1s cubic-bezier(0.4, 0, 0.2, 1)' 
+          }}>
+            <h1 style={{ fontSize: '3.5rem', margin: 0 }}>真相はいつもひとつ!</h1>
+            <p style={{ opacity: 0.7 }}>THERE IS ALWAYS ONLY ONE TRUTH!</p>
+          </div>
+          <SFX x="5%" bottom="10%" size="6rem">ドドド</SFX>
         </Panel>
 
-        {/* Panel 2: The Clue */}
-        <Panel col="span 6" row="span 2">
-          <PanelLabel>PANEL 02</PanelLabel>
-          <div style={{ textAlign: 'center', padding: '20px' }}>
-            <div style={{ fontSize: '4rem' }}>🔍</div>
-            <p style={{ color: 'black' }}>Traces of potassium cyanide...</p>
+        {/* Panel 2: The Clue (Interactive) */}
+        <Panel cols="span 5" rows="span 5">
+          <Mask open={evidence.one} onClick={() => setEvidence({...evidence, one: true})}>
+            [ CLASSIFIED ]
+          </Mask>
+          <div style={{ padding: '20px', textAlign: 'center', marginTop: '40px' }}>
+            <span style={{ fontSize: '4rem' }}>🕵️‍♂️</span>
+            <p style={{ color: '#000', fontWeight: '900', fontSize: '0.9rem' }}>"The shadow... it moves against the wind."</p>
+          </div>
+          <ThoughtBubble x="10%" y="10%">Something is off.</ThoughtBubble>
+        </Panel>
+
+        {/* Panel 3: Gadget Logic */}
+        <Panel cols="span 7" rows="span 3" onClick={() => setEvidence({...evidence, two: true})} style={{ cursor: 'pointer' }}>
+          <div style={{ padding: '25px', display: 'flex', alignItems: 'center' }}>
+            <span style={{ fontSize: '3rem', filter: evidence.two ? 'none' : 'grayscale(1) blur(4px)' }}>🎯</span>
+            <div style={{ marginLeft: '15px', color: '#000' }}>
+               <h3 style={{ margin: 0 }}>TARGET LOCK</h3>
+               <p style={{ fontSize: '0.7rem' }}>Stun-gun watch: Calibrating...</p>
+            </div>
+          </div>
+          <SFX red x="5%" bottom="5%" size="2rem">ザワ</SFX>
+        </Panel>
+
+        {/* Panel 4: The Final Evidence */}
+        <Panel cols="span 7" rows="span 2" onClick={() => setEvidence({...evidence, three: true})} style={{ cursor: 'pointer' }}>
+           <Mask open={evidence.three}>
+            [ ANALYSIS ]
+          </Mask>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+            <span style={{ fontSize: '3rem' }}>💊</span>
+            <h4 style={{ color: '#000', marginLeft: '15px', letterSpacing: '2px' }}>APTX 4869 FOUND</h4>
           </div>
         </Panel>
 
-        {/* Panel 3: Suspicion */}
-        <Panel col="span 6" row="span 1">
-          <PanelLabel>PANEL 03</PanelLabel>
-          <SpeechBubble top="10%" right="5%">He's... just a kid?</SpeechBubble>
-          <div style={{ fontSize: '3rem' }}>🤨</div>
-        </Panel>
-
-        {/* Panel 4: Action */}
-        <Panel col="span 6" row="span 1">
-          <PanelLabel>PANEL 04</PanelLabel>
-          <SoundEffect style={{ fontSize: '1.5rem', color: 'red' }}>ZZZT!</SoundEffect>
-          <p style={{ color: 'black' }}>*Aimed with Stun Gun Watch*</p>
-        </Panel>
-
-        {/* Panel 5: Conclusion */}
-        <Panel col="span 12" row="span 1">
-          <PanelLabel>FINAL PANEL</PanelLabel>
-          <h3 style={{ color: 'black' }}>NEXT TIME: THE BLACK ORGANIZATION APPEARS...</h3>
+        {/* Panel 5: The Reveal */}
+        <Panel cols="span 12" rows="span 3" style={{ background: isSolved ? '#000' : '#fff' }}>
+          <div style={{ height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            <h2 style={{ fontSize: '2.5rem', color: isSolved ? '#e60012' : '#ddd', textAlign: 'center' }}>
+              {isSolved ? "CASE CLOSED!" : "COLLECTING PROOF..."}
+            </h2>
+          </div>
+          {isSolved && <SFX red x="45%" bottom="10%" size="6rem">バァーン</SFX>}
         </Panel>
       </MangaPage>
 
-      <footer style={{ height: '100px' }} />
-    </>
+      <footer style={{ position: 'fixed', bottom: '20px', opacity: 0.3, color: '#fff', fontSize: '0.6rem', letterSpacing: '3px' }}>
+        RE-RENDER: REACT_MANGA_CORE_V3
+      </footer>
+    </Desk>
   );
 }
